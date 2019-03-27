@@ -1,2 +1,2 @@
-# ezo-token
-EZO Token Contract
+NEXT-GENERATION OF PAYMENT NETWORK.
+
