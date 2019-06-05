@@ -1,4 +1,4 @@
-pragma solidity ^0.4.22;
+pragma solidity ^0.5.8;
 
 // accepted from zeppelin-solidity https://github.com/OpenZeppelin/zeppelin-solidity
 /*
@@ -7,7 +7,7 @@ pragma solidity ^0.4.22;
  */
 contract ERC20 {
   uint public totalSupply;
-  function balanceOf(address _who) public constant returns (uint);
+  function balanceOf(address _who) public view returns (uint);
   function transfer(address _to, uint _value) public returns (bool ok);
   event Transfer(address indexed from, address indexed to, uint value);
 }

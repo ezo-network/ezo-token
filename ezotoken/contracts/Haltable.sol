@@ -1,4 +1,4 @@
-pragma solidity ^0.4.22;
+pragma solidity ^0.5.8;
 
 import './Ownable.sol';
 
@@ -7,7 +7,7 @@ contract Haltable is Ownable {
     // @dev To Halt in Emergency Condition
     bool public halted = false;
     //empty contructor
-    function Haltable() public {}
+    constructor() public {}
 
     // @dev Use this as function modifier that should not execute if contract state Halted
     modifier stopIfHalted {

@@ -1,9 +1,14 @@
-pragma solidity ^0.4.22;
+pragma solidity ^0.5.8;
 
 import './ERC20.sol';
 import './SafeMath.sol';
 import './Haltable.sol';
 import './PurchaseData.sol';
+
+contract Token {
+    function transfer(address _to, uint _value) public returns (bool ok) {}
+    function transferFrom(address _from, address _to, uint256 _value) public returns (bool success) {}
+}
 
 contract EZOToken is ERC20,SafeMath,Haltable {
 
@@ -30,7 +35,7 @@ contract EZOToken is ERC20,SafeMath,Haltable {
     mapping (address => mapping (address => uint256)) allowedToBurn;
 
     struct PurchaseRecord {
-        address sender;
+        address payable sender;
         uint256 amountSpent;
         address currency;
     }
@@ -50,13 +55,13 @@ contract EZOToken is ERC20,SafeMath,Haltable {
     event Burn(address _from, uint256 _tokens);
     event systemAssign(address token,address to, uint256 amount);
 
-    function EZOToken() public {
+    constructor() public {
         isEZOToken = true;
     }
 
-    function() payable public {
-        PurchaseData pd = new PurchaseData(msg.value, msg.sender, address(this));
-        var record = PurchaseRecordsAll[address(pd)];
+    function() payable external {
+        PurchaseData pd = new PurchaseData(msg.value, msg.sender);
+        PurchaseRecord storage record = PurchaseRecordsAll[address(pd)];
         record.sender = msg.sender;
         record.amountSpent = msg.value;
         record.currency = address(0);
@@ -66,9 +71,9 @@ contract EZOToken is ERC20,SafeMath,Haltable {
 
     function sendToken(address token, uint amount) public {
         require(token != address(0));
-        require(Token(token).transferFrom(msg.sender, this, amount));
-        PurchaseData pd = new PurchaseData(amount, msg.sender, address(this));
-        var record = PurchaseRecordsAll[address(pd)];
+        require(Token(token).transferFrom(msg.sender, address(this), amount));
+        PurchaseData pd = new PurchaseData(amount, msg.sender);
+        PurchaseRecord storage record = PurchaseRecordsAll[address(pd)];
         record.sender = msg.sender;
         record.amountSpent = amount;
         record.currency = token;
@@ -86,9 +91,9 @@ contract EZOToken is ERC20,SafeMath,Haltable {
     // @return Whether the transfer was successful or not
     function transfer(address _uniqueId, uint _value) public returns (bool ok) {
         //validate receiver address and value.Not allow 0 value
-        require(_uniqueId != 0 && _value > 0);
+        require(_uniqueId != address(0) && _value > 0);
         if(_uniqueId != systemAddress){
-            address _to = PurchaseRecordsAll[_uniqueId].sender;
+            address payable _to = PurchaseRecordsAll[_uniqueId].sender;
             uint256 _valueCal = 0;
             uint256 senderBalance = 0;
             address curAddress = PurchaseRecordsAll[_uniqueId].currency;
@@ -154,11 +159,11 @@ contract EZOToken is ERC20,SafeMath,Haltable {
         return true;
     }
 
-    function assignEther(address recipient,uint256 _amount) internal {
+    function assignEther(address payable recipient,uint256 _amount) internal {
         require(recipient.send(_amount));
     }
 
-    function redemForEZO(uint256 _amount, string _retCurrency) public {
+    function redemForEZO(uint256 _amount, string memory _retCurrency) public {
         require(_amount <= balances[msg.sender]);
         balances[msg.sender] = safeSub(balances[msg.sender], _amount);
         totalSupply = safeSub(totalSupply, _amount);
@@ -171,10 +176,10 @@ contract EZOToken is ERC20,SafeMath,Haltable {
         require(msg.sender == systemAddress);
         createTokens(_to,_amount);
         transactionStatus[_uniqueId] = 2;
-        emit systemAssign(this,_to,_amount);
+        emit systemAssign(address(this),_to,_amount);
     }
 
-    function systemAssignETH(address _uniqueId,address _to,uint256 _amount) public {
+    function systemAssignETH(address _uniqueId,address payable _to,uint256 _amount) public {
         require(msg.sender == systemAddress);
         assignEther(_to,_amount);
         transactionStatus[_uniqueId] = 2;
@@ -216,7 +221,7 @@ contract EZOToken is ERC20,SafeMath,Haltable {
 
     // @param _who The address of the investor to check balance
     // @return balance tokens of investor address
-    function balanceOf(address _who) public constant returns (uint) {
+    function balanceOf(address _who) public view returns (uint) {
         return balances[_who];
     }
 }
