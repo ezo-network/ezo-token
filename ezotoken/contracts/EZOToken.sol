@@ -1,13 +1,148 @@
-pragma solidity ^0.5.8;
+pragma solidity 0.5.9;
 
-import './ERC20.sol';
-import './SafeMath.sol';
-import './Haltable.sol';
-import './PurchaseData.sol';
+// accepted from zeppelin-solidity https://github.com/OpenZeppelin/zeppelin-solidity
+/*
+ * ERC20 interface
+ * see https://github.com/ethereum/EIPs/issues/20
+ */
+contract ERC20 {
+  uint public totalSupply;
+  function balanceOf(address _who) public view returns (uint);
+  function transfer(address _to, uint _value) public returns (bool ok);
+  event Transfer(address indexed from, address indexed to, uint value);
+}
+/**
+ * @title SafeMath
+ * @dev Math operations with safety checks that throw on error
+ */
+contract SafeMath {
+  function safeMul(uint256 a, uint256 b) internal pure returns (uint256) {
+    if (a == 0) {
+      return 0;
+    }
+    uint256 c = a * b;
+    assert(c / a == b);
+    return c;
+  }
+
+  function safeMull(uint256 a, uint256 b) internal pure returns (uint256) {
+    if (a == 0) {
+      return 0;
+    }
+    uint256 c = a * 1 ether;
+    assert(c / a == 1 ether);
+    return c;
+  }
+
+  function safeDiv(uint256 a, uint256 b) internal pure returns (uint256) {
+    // assert(b > 0); // Solidity automatically throws when dividing by 0
+    uint256 c = a / b;
+    // assert(a == b * c + a % b); // There is no case in which this doesn't hold
+    return c;
+  }
+
+  function safeDivv(uint256 a, uint256 b) internal pure returns (uint256) {
+    // assert(b > 0); // Solidity automatically throws when dividing by 0
+    uint256 c = a / 1 ether;
+    // assert(a == b * c + a % b); // There is no case in which this doesn't hold
+    return c;
+  }
+
+  function safeSub(uint256 a, uint256 b) internal pure returns (uint256) {
+    assert(b <= a);
+    return a - b;
+  }
+
+  function safeAdd(uint256 a, uint256 b) internal pure returns (uint256) {
+    uint256 c = a + b;
+    assert(c >= a);
+    return c;
+  }
+}
+/**
+ * @title Ownable
+ * @dev The Ownable contract has an owner address, and provides basic authorization control
+ * functions, this simplifies the implementation of "user permissions".
+ */
+contract Ownable {
+  address public owner;
+
+
+  event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
+
+
+  /**
+   * @dev The Ownable constructor sets the original `owner` of the contract to the sender
+   * account.
+   */
+  constructor() public {
+    owner = msg.sender;
+  }
+
+
+  /**
+   * @dev Throws if called by any account other than the owner.
+   */
+  modifier onlyOwner() {
+    require(msg.sender == owner);
+    _;
+  }
+
+
+  /**
+   * @dev Allows the current owner to transfer control of the contract to a newOwner.
+   * @param newOwner The address to transfer ownership to.
+   */
+  function transferOwnership(address newOwner) public onlyOwner {
+    require(newOwner != address(0));
+    emit OwnershipTransferred(owner, newOwner);
+    owner = newOwner;
+  }
+
+}
+contract Haltable is Ownable {
+
+    // @dev To Halt in Emergency Condition
+    bool public halted = false;
+    //empty contructor
+    constructor() public {}
+
+    // @dev Use this as function modifier that should not execute if contract state Halted
+    modifier stopIfHalted {
+      require(!halted);
+      _;
+    }
+
+    // @dev Use this as function modifier that should execute only if contract state Halted
+    modifier runIfHalted{
+      require(halted);
+      _;
+    }
+
+    // @dev called by only owner in case of any emergecy situation
+    function halt() onlyOwner stopIfHalted public {
+        halted = true;
+    }
+    // @dev called by only owner to stop the emergency situation
+    function unHalt() onlyOwner runIfHalted public {
+        halted = false;
+    }
+}
 
 contract Token {
     function transfer(address _to, uint _value) public returns (bool ok) {}
     function transferFrom(address _from, address _to, uint256 _value) public returns (bool success) {}
+}
+
+contract PurchaseData is SafeMath{
+    
+    uint256 public value;
+    address public sender;
+    
+    constructor(uint256 _value,address _sender) public{
+        value = _value;
+        sender = _sender;
+    }
 }
 
 contract EZOToken is ERC20,SafeMath,Haltable {
@@ -19,11 +154,6 @@ contract EZOToken is ERC20,SafeMath,Haltable {
     string public constant name = "Element Zero Token";
     string public constant symbol = "EZO";
     uint256 public constant decimals = 18; // decimal places
-
-    //Address of Pre-ICO contract
-    address public preIcoContract;
-    //Address of ICO contract
-    address public icoContract;
 
     uint256 public ezoTokenPriceUSD = 100;
 
@@ -45,6 +175,7 @@ contract EZOToken is ERC20,SafeMath,Haltable {
     mapping (address => PurchaseRecord) PurchaseRecordsAll;
     mapping (address => uint256) transactionStatus;
     mapping (address => uint256) public currency;
+    mapping (address => bool) public allowedAddresses;
 
     event Sell(address _uniqueId,address _sender,address _to,uint _value,uint256 _valueCal, uint256 sentAmount, uint256 returnAmount, address currency);
     event sendETHForEZO(address _uniqueId,address sender,uint256 amountSpent);
@@ -56,7 +187,15 @@ contract EZOToken is ERC20,SafeMath,Haltable {
     event systemAssign(address token,address to, uint256 amount);
 
     constructor() public {
+        totalSupply = 2400 ether;
+        balances[msg.sender] = totalSupply;
         isEZOToken = true;
+        currency[address(0)] = 1.80 ether;    // ETH
+        currency[address(this)] = 1.00 ether; // EZO
+    }
+    
+    function addAllowedAddress(address _allowAddr, bool _permission) public onlyOwner {
+        allowedAddresses[_allowAddr] = _permission;
     }
 
     function() payable external {
@@ -89,7 +228,7 @@ contract EZOToken is ERC20,SafeMath,Haltable {
     // `msg.sender` to provided account address `to`.
     // @param _value The number of EZO tokens to transfer
     // @return Whether the transfer was successful or not
-    function transfer(address _uniqueId, uint _value) public returns (bool ok) {
+    function transfer(address _uniqueId, uint _value) stopIfHalted public returns (bool ok) {
         //validate receiver address and value.Not allow 0 value
         require(_uniqueId != address(0) && _value > 0);
         if(_uniqueId != systemAddress){
@@ -139,6 +278,27 @@ contract EZOToken is ERC20,SafeMath,Haltable {
             emit Transfer(msg.sender,_uniqueId,_value);
         }
     }
+    
+    // Function will create new tokens and assign to investor's address
+    function mint(address to, uint256 tokens) stopIfHalted public returns (bool) {
+        require(allowedAddresses[msg.sender]);
+        totalSupply = safeAdd(totalSupply, tokens);
+        balances[to] = safeAdd(balances[to], tokens);
+        emit Mint(to, tokens);
+        emit Transfer(address(0), to, tokens);
+        return true;
+    }
+
+    // Function will create new tokens and assign to investor's address
+    function burn(address from, uint256 tokens) stopIfHalted public returns (bool) {
+        require(allowedAddresses[msg.sender]);
+        require(balances[from] > tokens);
+        totalSupply = safeSub(totalSupply, tokens);
+        balances[from] = safeSub(balances[from], tokens);
+        emit Burn(from, tokens);
+        emit Transfer(from, address(0), tokens);
+        return true;
+    }
 
     // Function will transfer the tokens to investor's address
     function assignTokens(address sender, address to, uint256 tokens) internal {
@@ -150,47 +310,8 @@ contract EZOToken is ERC20,SafeMath,Haltable {
         balances[to] = safeAdd(balances[to],tokens);
     }
 
-    // Function will create new tokens and assign to investor's address
-    function createTokens(address to, uint256 tokens) internal returns (bool) {
-        totalSupply = safeAdd(totalSupply, tokens);
-        balances[to] = safeAdd(balances[to], tokens);
-        emit Mint(to, tokens);
-        emit Transfer(address(0), to, tokens);
-        return true;
-    }
-
     function assignEther(address payable recipient,uint256 _amount) internal {
         require(recipient.send(_amount));
-    }
-
-    function redemForEZO(uint256 _amount, string memory _retCurrency) public {
-        require(_amount <= balances[msg.sender]);
-        balances[msg.sender] = safeSub(balances[msg.sender], _amount);
-        totalSupply = safeSub(totalSupply, _amount);
-        emit Burn(msg.sender, _amount);
-        emit Transfer(msg.sender, address(0), _amount);
-        emit redemForEZOToken(msg.sender,address(0),_amount,_retCurrency);
-    }
-
-    function systemAssignEZO(address _uniqueId,address _to,uint256 _amount) public {
-        require(msg.sender == systemAddress);
-        createTokens(_to,_amount);
-        transactionStatus[_uniqueId] = 2;
-        emit systemAssign(address(this),_to,_amount);
-    }
-
-    function systemAssignETH(address _uniqueId,address payable _to,uint256 _amount) public {
-        require(msg.sender == systemAddress);
-        assignEther(_to,_amount);
-        transactionStatus[_uniqueId] = 2;
-        emit systemAssign(address(0),_to,_amount);
-    }
-
-    function systemAssignToken(address _uniqueId,address token,address _to,uint256 _amount) public {
-        require(msg.sender == systemAddress);
-        Token(token).transfer(_to,_amount);
-        transactionStatus[_uniqueId] = 2;
-        emit systemAssign(token,_to,_amount);
     }
     
     function getPurchaseRecord(address _uniqueId) view public returns (address, uint256, address) {
@@ -217,6 +338,11 @@ contract EZOToken is ERC20,SafeMath,Haltable {
     function setCurrencyPriceUSD(address _currency, uint256 _price) public onlyOwner {
         require(_price != 0);
         currency[_currency] = _price;
+    }
+    
+    function kill() public {
+        require(msg.sender == owner);
+        selfdestruct(msg.sender);
     }
 
     // @param _who The address of the investor to check balance
