@@ -341,11 +341,6 @@ contract EZOToken is ERC20,SafeMath,Haltable {
         require(_ezoTokenPriceUSD != 0);
         ezoTokenPriceUSD = _ezoTokenPriceUSD;
     }
-    
-    function kill() public {
-        require(msg.sender == owner);
-        selfdestruct(msg.sender);
-    }
 
     // @param _who The address of the investor to check balance
     // @return balance tokens of investor address
