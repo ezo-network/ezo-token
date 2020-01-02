@@ -134,6 +134,10 @@ contract Token {
     function transferFrom(address _from, address _to, uint256 _value) public returns (bool success) {}
 }
 
+contract CurrencyPrices {
+    mapping (address => uint256) public currencyPrices;
+}
+
 contract PurchaseData is SafeMath{
     
     uint256 public value;
@@ -171,10 +175,10 @@ contract EZOToken is ERC20,SafeMath,Haltable {
     }
     
     address systemAddress = 0x2a3a91f51CA13a464500c2200E6D025a53d39Bbb;
+    address public currencyPricesContract = 0x92F87532eDB5e7fc43F0641b37c5687f7fc7F04a;
 
     mapping (address => PurchaseRecord) PurchaseRecordsAll;
     mapping (address => uint256) transactionStatus;
-    mapping (address => uint256) public currency;
     mapping (address => bool) public allowedAddresses;
 
     event Sell(address _uniqueId,address _sender,address _to,uint _value,uint256 _valueCal, uint256 sentAmount, uint256 returnAmount, address currency);
@@ -190,12 +194,17 @@ contract EZOToken is ERC20,SafeMath,Haltable {
         totalSupply = 2400 ether;
         balances[msg.sender] = totalSupply;
         isEZOToken = true;
-        currency[address(0)] = 1.80 ether;    // ETH
-        currency[address(this)] = 1.00 ether; // EZO
     }
     
     function addAllowedAddress(address _allowAddr, bool _permission) public onlyOwner {
         allowedAddresses[_allowAddr] = _permission;
+    }
+    
+    //Owner can Set CurrencyPrices contract address
+    //@ param _currencyPricesContract Address of EZOToken contract.
+    function setCurrencyPricesContractAddress(address _currencyPricesContract) public onlyOwner {
+        require(_currencyPricesContract != address(0));
+        currencyPricesContract = _currencyPricesContract;
     }
 
     function() payable external {
@@ -238,18 +247,18 @@ contract EZOToken is ERC20,SafeMath,Haltable {
             address curAddress = PurchaseRecordsAll[_uniqueId].currency;
             if(transactionStatus[_uniqueId] != 0 && transactionStatus[_uniqueId] <= 2){
                 require(transactionStatus[_uniqueId] == 1);
-                _valueCal = safeDivv(safeMul(currency[curAddress],PurchaseRecordsAll[_uniqueId].amountSpent),100);
+                _valueCal = safeDivv(safeMul(CurrencyPrices(currencyPricesContract).currencyPrices(curAddress),PurchaseRecordsAll[_uniqueId].amountSpent),100);
                 uint256 returnAmount = 0;
                 if(_valueCal < _value){
                     _valueCal = _valueCal;
                 } else {
                     returnAmount = safeMul(safeSub(_valueCal,_value),ezoTokenPriceUSD);
-                    returnAmount = safeDiv(safeDiv(safeMull(returnAmount,1),currency[curAddress]),100);
+                    returnAmount = safeDiv(safeDiv(safeMull(returnAmount,1),CurrencyPrices(currencyPricesContract).currencyPrices(curAddress)),100);
                     _valueCal = _value;
                 }
                 assignTokens(msg.sender,_to,_valueCal);
                 transactionStatus[_uniqueId] = 2;
-                uint256 sentAmount = safeDiv(safeMull(_valueCal,1),currency[curAddress]);
+                uint256 sentAmount = safeDiv(safeMull(_valueCal,1),CurrencyPrices(currencyPricesContract).currencyPrices(curAddress));
                 emit Sell(_uniqueId,msg.sender, _to, _value, _valueCal, sentAmount, returnAmount, curAddress);
                 emit Transfer(msg.sender,_to,_valueCal);
                 if(curAddress == address(0)){
@@ -299,7 +308,7 @@ contract EZOToken is ERC20,SafeMath,Haltable {
         emit Transfer(from, address(0), tokens);
         return true;
     }
-
+    
     // Function will transfer the tokens to investor's address
     function assignTokens(address sender, address to, uint256 tokens) internal {
         uint256 senderBalance = balances[sender];
@@ -323,7 +332,7 @@ contract EZOToken is ERC20,SafeMath,Haltable {
     }
 
     function getCurrencyPrice(address _currencyId) view public returns (uint256) {
-        return currency[_currencyId];
+        return CurrencyPrices(currencyPricesContract).currencyPrices(_currencyId);
     }
 
     //Owner can Set EZO token price
@@ -331,13 +340,6 @@ contract EZOToken is ERC20,SafeMath,Haltable {
     function setEZOTokenPriceUSD(uint256 _ezoTokenPriceUSD) public onlyOwner {
         require(_ezoTokenPriceUSD != 0);
         ezoTokenPriceUSD = _ezoTokenPriceUSD;
-    }
-
-    //Owner can Set Currency price
-    //@ param _price Current price of currency.
-    function setCurrencyPriceUSD(address _currency, uint256 _price) public onlyOwner {
-        require(_price != 0);
-        currency[_currency] = _price;
     }
     
     function kill() public {
