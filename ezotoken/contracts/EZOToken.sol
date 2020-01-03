@@ -132,6 +132,7 @@ contract Haltable is Ownable {
 contract Token {
     function transfer(address _to, uint _value) public returns (bool ok) {}
     function transferFrom(address _from, address _to, uint256 _value) public returns (bool success) {}
+    function balanceOf(address _who) public view returns (uint);
 }
 
 contract CurrencyPrices {
@@ -189,6 +190,7 @@ contract EZOToken is ERC20,SafeMath,Haltable {
     event Mint(address _to, uint256 _tokens);
     event Burn(address _from, uint256 _tokens);
     event systemAssign(address token,address to, uint256 amount);
+    event orderCanceled(uint256,address,address);
 
     constructor() public {
         totalSupply = 2400 ether;
@@ -227,6 +229,28 @@ contract EZOToken is ERC20,SafeMath,Haltable {
         record.currency = token;
         transactionStatus[address(pd)] = 1;
         emit sendTokenForEZO(address(pd),msg.sender,amount);
+    }
+    
+    function cancelOrder(address _uniqueId) public {
+        require(msg.sender == PurchaseRecordsAll[_uniqueId].sender);
+        require(transactionStatus[_uniqueId] == 1);
+        transactionStatus[_uniqueId] = 2;
+        generalFundAssign(PurchaseRecordsAll[_uniqueId].currency,PurchaseRecordsAll[_uniqueId].sender,PurchaseRecordsAll[_uniqueId].amountSpent);
+    }
+    
+    function generalFundAssign(address _currencySent,address payable _recipient, uint256 _amount) internal {
+        if(_currencySent == address(this)) {
+            mint(_recipient,_amount);
+            emit orderCanceled(_amount,_recipient,_currencySent);
+        } else if(_currencySent == address(0)) {
+            require(address(this).balance >= _amount);
+            assignEther(_recipient,_amount);
+            emit orderCanceled(_amount,_recipient,address(0));
+        } else {
+            require(Token(_currencySent).balanceOf(address(this)) >= _amount);
+            Token(_currencySent).transfer(_recipient,_amount);
+            emit orderCanceled(_amount,_recipient,_currencySent);
+        }
     }
 
     function updateTxStatus(address _uniqueId,uint256 _status) public onlyOwner{
