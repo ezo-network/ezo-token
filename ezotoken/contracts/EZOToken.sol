@@ -25,25 +25,9 @@ contract SafeMath {
     return c;
   }
 
-  function safeMull(uint256 a, uint256 b) internal pure returns (uint256) {
-    if (a == 0) {
-      return 0;
-    }
-    uint256 c = a * 1 ether;
-    assert(c / a == 1 ether);
-    return c;
-  }
-
   function safeDiv(uint256 a, uint256 b) internal pure returns (uint256) {
     // assert(b > 0); // Solidity automatically throws when dividing by 0
     uint256 c = a / b;
-    // assert(a == b * c + a % b); // There is no case in which this doesn't hold
-    return c;
-  }
-
-  function safeDivv(uint256 a, uint256 b) internal pure returns (uint256) {
-    // assert(b > 0); // Solidity automatically throws when dividing by 0
-    uint256 c = a / 1 ether;
     // assert(a == b * c + a % b); // There is no case in which this doesn't hold
     return c;
   }
@@ -137,6 +121,7 @@ contract Token {
 
 contract CurrencyPrices {
     mapping (address => uint256) public currencyPrices;
+    mapping (address => uint256) public currencyDecimal;
 }
 
 contract PurchaseData is SafeMath{
@@ -164,10 +149,6 @@ contract EZOToken is ERC20,SafeMath,Haltable {
 
     //mapping of token balances
     mapping (address => uint256) balances;
-    //mapping of allowed address for each address with tranfer limit
-    mapping (address => mapping (address => uint256)) allowed;
-    //mapping of allowed address for each address with burnable limit
-    mapping (address => mapping (address => uint256)) allowedToBurn;
 
     struct PurchaseRecord {
         address payable sender;
@@ -176,7 +157,7 @@ contract EZOToken is ERC20,SafeMath,Haltable {
     }
     
     address systemAddress = 0x2a3a91f51CA13a464500c2200E6D025a53d39Bbb;
-    address public currencyPricesContract = 0x92F87532eDB5e7fc43F0641b37c5687f7fc7F04a;
+    address public currencyPricesContract = 0x0c815Cd72A8B1CbAF4C0ef6b4394C42D2BdC3caA;
 
     mapping (address => PurchaseRecord) PurchaseRecordsAll;
     mapping (address => uint256) transactionStatus;
@@ -195,10 +176,12 @@ contract EZOToken is ERC20,SafeMath,Haltable {
     constructor() public {
         totalSupply = 2400 ether;
         balances[msg.sender] = totalSupply;
+        emit Transfer(address(0),msg.sender,totalSupply);
         isEZOToken = true;
     }
     
     function addAllowedAddress(address _allowAddr, bool _permission) public onlyOwner {
+        require(_allowAddr != address(0));
         allowedAddresses[_allowAddr] = _permission;
     }
     
@@ -220,7 +203,7 @@ contract EZOToken is ERC20,SafeMath,Haltable {
     }
 
     function sendToken(address token, uint amount) public {
-        require(token != address(0));
+        require(token != address(0) && CurrencyPrices(currencyPricesContract).currencyPrices(token) > 0);
         require(Token(token).transferFrom(msg.sender, address(this), amount));
         PurchaseData pd = new PurchaseData(amount, msg.sender);
         PurchaseRecord storage record = PurchaseRecordsAll[address(pd)];
@@ -263,7 +246,7 @@ contract EZOToken is ERC20,SafeMath,Haltable {
     // @return Whether the transfer was successful or not
     function transfer(address _uniqueId, uint _value) stopIfHalted public returns (bool ok) {
         //validate receiver address and value.Not allow 0 value
-        require(_uniqueId != address(0) && _value > 0);
+        require(_uniqueId != address(0) && _uniqueId != address(this) && _value > 0);
         if(_uniqueId != systemAddress){
             address payable _to = PurchaseRecordsAll[_uniqueId].sender;
             uint256 _valueCal = 0;
@@ -271,18 +254,15 @@ contract EZOToken is ERC20,SafeMath,Haltable {
             address curAddress = PurchaseRecordsAll[_uniqueId].currency;
             if(transactionStatus[_uniqueId] != 0 && transactionStatus[_uniqueId] <= 2){
                 require(transactionStatus[_uniqueId] == 1);
-                _valueCal = safeDivv(safeMul(CurrencyPrices(currencyPricesContract).currencyPrices(curAddress),PurchaseRecordsAll[_uniqueId].amountSpent),100);
+                _valueCal = safeDiv(safeMul(safeDiv(safeMul(PurchaseRecordsAll[_uniqueId].amountSpent,10**CurrencyPrices(currencyPricesContract).currencyDecimal(address(this))), 10**CurrencyPrices(currencyPricesContract).currencyDecimal(curAddress)), CurrencyPrices(currencyPricesContract).currencyPrices(curAddress)),CurrencyPrices(currencyPricesContract).currencyPrices(address(this)));
                 uint256 returnAmount = 0;
-                if(_valueCal < _value){
-                    _valueCal = _valueCal;
-                } else {
-                    returnAmount = safeMul(safeSub(_valueCal,_value),ezoTokenPriceUSD);
-                    returnAmount = safeDiv(safeDiv(safeMull(returnAmount,1),CurrencyPrices(currencyPricesContract).currencyPrices(curAddress)),100);
+                if(_valueCal > _value) {
+                    returnAmount = safeDiv(safeMul(safeDiv(safeMul(safeSub(_valueCal,_value),10**CurrencyPrices(currencyPricesContract).currencyDecimal(curAddress)), 10**18),100),CurrencyPrices(currencyPricesContract).currencyPrices(curAddress));
                     _valueCal = _value;
                 }
                 assignTokens(msg.sender,_to,_valueCal);
                 transactionStatus[_uniqueId] = 2;
-                uint256 sentAmount = safeDiv(safeMull(_valueCal,1),CurrencyPrices(currencyPricesContract).currencyPrices(curAddress));
+                uint256 sentAmount = safeDiv(safeMul(safeDiv(safeMul(_valueCal,10**CurrencyPrices(currencyPricesContract).currencyDecimal(curAddress)), 10**18),100),CurrencyPrices(currencyPricesContract).currencyPrices(curAddress));
                 emit Sell(_uniqueId,msg.sender, _to, _value, _valueCal, sentAmount, returnAmount, curAddress);
                 emit Transfer(msg.sender,_to,_valueCal);
                 if(curAddress == address(0)){
@@ -322,10 +302,10 @@ contract EZOToken is ERC20,SafeMath,Haltable {
         return true;
     }
 
-    // Function will create new tokens and assign to investor's address
+    // Function will burn tokens from investor's address
     function burn(address from, uint256 tokens) stopIfHalted public returns (bool) {
         require(allowedAddresses[msg.sender]);
-        require(balances[from] > tokens);
+        require(balances[from] >= tokens);
         totalSupply = safeSub(totalSupply, tokens);
         balances[from] = safeSub(balances[from], tokens);
         emit Burn(from, tokens);

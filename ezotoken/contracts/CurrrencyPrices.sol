@@ -68,10 +68,24 @@ contract Haltable is Ownable {
 contract CurrencyPrices is Haltable {
     
     mapping (address => uint256) public currencyPrices;
+    mapping (address => uint256) public currencyDecimal;
+    
+    //Owner can Set Currency decimal
+    //@ param _currency Currency.
+    //@ param _decimal Decimal of currency.
+    function setCurrencyDecimal(address[] memory _currency, uint256[] memory _decimal) public onlyOwner {
+        require(_currency.length == _decimal.length);
+        for(uint8 i = 0; i < _currency.length; i++){
+            require(_decimal[i] != 0);
+            currencyDecimal[_currency[i]] = _decimal[i];   
+        }
+    }
     
     //Owner can Set Currency price
+    //@ param _currency Currency.
     //@ param _price Current price of currency.
     function setCurrencyPriceUSD(address[] memory _currency, uint256[] memory _price) public onlyOwner {
+        require(_currency.length == _price.length);
         for(uint8 i = 0; i < _currency.length; i++){
             require(_price[i] != 0);
             currencyPrices[_currency[i]] = _price[i];   
