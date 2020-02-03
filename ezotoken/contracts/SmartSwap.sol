@@ -14,25 +14,9 @@ contract SafeMath {
     return c;
   }
 
-  function safeMull(uint256 a, uint256 b) internal pure returns (uint256) {
-    if (a == 0) {
-      return 0;
-    }
-    uint256 c = a * 1 ether;
-    assert(c / a == 1 ether);
-    return c;
-  }
-
   function safeDiv(uint256 a, uint256 b) internal pure returns (uint256) {
     // assert(b > 0); // Solidity automatically throws when dividing by 0
     uint256 c = a / b;
-    // assert(a == b * c + a % b); // There is no case in which this doesn't hold
-    return c;
-  }
-
-  function safeDivv(uint256 a, uint256 b) internal pure returns (uint256) {
-    // assert(b > 0); // Solidity automatically throws when dividing by 0
-    uint256 c = a / 1 ether;
     // assert(a == b * c + a % b); // There is no case in which this doesn't hold
     return c;
   }
@@ -142,6 +126,7 @@ contract EZOToken {
 
 contract CurrencyPrices {
     mapping (address => uint256) public currencyPrices;
+    mapping (address => uint256) public currencyDecimal;
 }
 
 contract SmartSwap is SafeMath,Haltable {
@@ -160,8 +145,8 @@ contract SmartSwap is SafeMath,Haltable {
     }
     
     bool public inExecution = false;
-    address public ezoTokenAddress = 0xC272205FB319bFb6A542FF8440eb7bFB6DdcEb7c;
-    address public currencyPricesContract = 0x92F87532eDB5e7fc43F0641b37c5687f7fc7F04a;
+    address public ezoTokenAddress = 0x35eF07393b57464e93dEB59175fF72E6499450cF;
+    address public currencyPricesContract = 0xEc5bEe2dbB67dA8757091Ad3D9526Ba3ed2E2137;
     
     mapping (address => mapping (address => Order)) orderAll;
     
@@ -216,9 +201,9 @@ contract SmartSwap is SafeMath,Haltable {
     function addOrder(uint256 _sentAmount, address payable _sender, address _currencySent,address _currencyWant) internal {
         if(_currencyWant == ezoTokenAddress){
             orderAll[_currencySent][_currencyWant].orderDetails.push(PurchaseRecord(_sender,_sentAmount,0,_currencySent,_currencyWant,true));
-            generalFundAssign(ezoTokenAddress,_sender,safeDiv(safeMul(_sentAmount,CurrencyPrices(currencyPricesContract).currencyPrices(_currencySent)),CurrencyPrices(currencyPricesContract).currencyPrices(ezoTokenAddress)));
+            generalFundAssign(ezoTokenAddress,_sender,safeDiv(safeMul(safeDiv(safeMul(_sentAmount,10**CurrencyPrices(currencyPricesContract).currencyDecimal(ezoTokenAddress)), 10**CurrencyPrices(currencyPricesContract).currencyDecimal(_currencySent)),CurrencyPrices(currencyPricesContract).currencyPrices(_currencySent)),CurrencyPrices(currencyPricesContract).currencyPrices(ezoTokenAddress)));
         } else if(_currencySent == ezoTokenAddress){
-            if(generalFundAssignEZO(_currencyWant,_sender,safeDiv(safeMul(_sentAmount,CurrencyPrices(currencyPricesContract).currencyPrices(ezoTokenAddress)),CurrencyPrices(currencyPricesContract).currencyPrices(_currencyWant)))){
+            if(generalFundAssignEZO(_currencyWant,_sender,safeDiv(safeMul(safeDiv(safeMul(_sentAmount,10**CurrencyPrices(currencyPricesContract).currencyDecimal(_currencyWant)), 10**CurrencyPrices(currencyPricesContract).currencyDecimal(ezoTokenAddress)),CurrencyPrices(currencyPricesContract).currencyPrices(ezoTokenAddress)),CurrencyPrices(currencyPricesContract).currencyPrices(_currencyWant)))){
                 orderAll[_currencySent][_currencyWant].orderDetails.push(PurchaseRecord(_sender,_sentAmount,0,_currencySent,_currencyWant,true));   
             } else {
                 orderAll[_currencySent][_currencyWant].orderDetails.push(PurchaseRecord(_sender,_sentAmount,_sentAmount,_currencySent,_currencyWant,false));
@@ -239,7 +224,8 @@ contract SmartSwap is SafeMath,Haltable {
             
             if(_indexNew < orderAll[currencySentNewOrder][currencyWantNewOrder].orderDetails.length && _indexOld < orderAll[currencyWantNewOrder][currencySentNewOrder].orderDetails.length){
                 uint256 remainingAmountPendingOrder = orderAll[_currencyWantNewOrder][_currencySentNewOrder].orderDetails[_indexOld].remainingAmount;
-                uint256 returnCurrencyAmount = (remainingAmountPendingOrder * CurrencyPrices(currencyPricesContract).currencyPrices(orderAll[_currencyWantNewOrder][_currencySentNewOrder].orderDetails[_indexOld].currencySent)) / CurrencyPrices(currencyPricesContract).currencyPrices(orderAll[_currencyWantNewOrder][_currencySentNewOrder].orderDetails[_indexOld].currencyWant);
+                uint256 returnCurrencyAmount = getReturnAmount(remainingAmountPendingOrder, _currencySentNewOrder, _currencyWantNewOrder, _indexNew, _indexOld);
+                
                 if(!orderAll[_currencyWantNewOrder][_currencySentNewOrder].orderDetails[_indexOld].status && !orderAll[_currencySentNewOrder][_currencyWantNewOrder].orderDetails[_indexNew].status){
                     if(returnCurrencyAmount < remainingAmountNewOrder){
                         orderAll[_currencyWantNewOrder][_currencySentNewOrder].orderDetails[_indexOld].status = true;
@@ -253,6 +239,14 @@ contract SmartSwap is SafeMath,Haltable {
                         generalFundAssign(currencyWantNewOrder,orderAll[_currencySentNewOrder][_currencyWantNewOrder].orderDetails[_indexNew].sender,remainingAmountPendingOrder - (getCalValue(returnCurrencyAmount,remainingAmountNewOrder,_currencySentNewOrder,_currencyWantNewOrder)));
                         generalFundAssign(orderAll[_currencyWantNewOrder][_currencySentNewOrder].orderDetails[_indexOld].currencyWant,orderAll[_currencyWantNewOrder][_currencySentNewOrder].orderDetails[_indexOld].sender,remainingAmountNewOrder);
                         inExecution = false;
+                    } else if(returnCurrencyAmount == remainingAmountNewOrder){
+                        orderAll[_currencyWantNewOrder][_currencySentNewOrder].orderDetails[_indexOld].status = true;
+                        orderAll[_currencySentNewOrder][_currencyWantNewOrder].orderDetails[_indexNew].status = true;
+                        orderAll[_currencySentNewOrder][_currencyWantNewOrder].orderDetails[_indexNew].remainingAmount = 0;                        
+                        orderAll[_currencyWantNewOrder][_currencySentNewOrder].orderDetails[_indexOld].remainingAmount = 0;
+                        generalFundAssign(currencyWantNewOrder,orderAll[_currencySentNewOrder][_currencyWantNewOrder].orderDetails[_indexNew].sender,remainingAmountPendingOrder);
+                        generalFundAssign(orderAll[_currencyWantNewOrder][_currencySentNewOrder].orderDetails[_indexOld].currencyWant,orderAll[_currencyWantNewOrder][_currencySentNewOrder].orderDetails[_indexOld].sender,remainingAmountNewOrder);
+                        inExecution = false;
                     }
                 } else {
                     revert();
@@ -260,6 +254,10 @@ contract SmartSwap is SafeMath,Haltable {
             } else {
                 revert();
             }
+    }
+    
+    function getReturnAmount(uint256 _remainingAmountPendingOrder, address _currencySentNewOrder,address _currencyWantNewOrder,uint256 _indexNew,uint256 _indexOld) internal view returns(uint256){
+        return safeDiv(safeMul(safeDiv(safeMul(_remainingAmountPendingOrder, 10**CurrencyPrices(currencyPricesContract).currencyDecimal(orderAll[_currencyWantNewOrder][_currencySentNewOrder].orderDetails[_indexOld].currencyWant)), 10**CurrencyPrices(currencyPricesContract).currencyDecimal(orderAll[_currencyWantNewOrder][_currencySentNewOrder].orderDetails[_indexOld].currencySent)), CurrencyPrices(currencyPricesContract).currencyPrices(orderAll[_currencyWantNewOrder][_currencySentNewOrder].orderDetails[_indexOld].currencySent)), CurrencyPrices(currencyPricesContract).currencyPrices(orderAll[_currencyWantNewOrder][_currencySentNewOrder].orderDetails[_indexOld].currencyWant));
     }
     
     function getCalValue(uint256 returnCurrencyAmount, uint256 remainingAmountNewOrder,address _currencySent,address _currencyWant) internal view returns(uint256){
@@ -308,7 +306,7 @@ contract SmartSwap is SafeMath,Haltable {
         uint256 remainingAmountNewOrder = orderAll[_currencySentNewOrder][_currencyWantNewOrder].orderDetails[_indexNew].remainingAmount;
         if(_indexNew < orderAll[currencySentNewOrder][currencyWantNewOrder].orderDetails.length && _indexOld < orderAll[currencyWantNewOrder][currencySentNewOrder].orderDetails.length){
             uint256 remainingAmountPendingOrder = orderAll[_currencyWantNewOrder][_currencySentNewOrder].orderDetails[_indexOld].remainingAmount;
-            uint256 returnCurrencyAmount = (remainingAmountPendingOrder * CurrencyPrices(currencyPricesContract).currencyPrices(orderAll[_currencyWantNewOrder][_currencySentNewOrder].orderDetails[_indexOld].currencySent)) / CurrencyPrices(currencyPricesContract).currencyPrices(orderAll[_currencyWantNewOrder][_currencySentNewOrder].orderDetails[_indexOld].currencyWant);
+            uint256 returnCurrencyAmount = getReturnAmount(remainingAmountPendingOrder, _currencySentNewOrder, _currencyWantNewOrder, _indexNew, _indexOld);
             if(!orderAll[_currencyWantNewOrder][_currencySentNewOrder].orderDetails[_indexOld].status && !orderAll[_currencySentNewOrder][_currencyWantNewOrder].orderDetails[_indexNew].status){
                 if(returnCurrencyAmount < remainingAmountNewOrder){
                     require(generalFundAssignView(currencyWantNewOrder,remainingAmountPendingOrder));
