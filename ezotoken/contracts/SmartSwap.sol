@@ -106,6 +106,8 @@ contract Token {
     function transfer(address _to, uint _value) public returns (bool ok) {}
     function transferFrom(address _from, address _to, uint256 _value) public returns (bool success) {}
     function balanceOf(address _who) public view returns (uint);
+    function mint(address to, uint256 tokens) public returns (bool ok) {}
+    function burn(address from, uint256 tokens) public returns (bool ok) {}
 }
 
 contract PurchaseData {
@@ -145,10 +147,12 @@ contract SmartSwap is SafeMath,Haltable {
     }
     
     bool public inExecution = false;
-    address public ezoTokenAddress = 0x35eF07393b57464e93dEB59175fF72E6499450cF;
-    address public currencyPricesContract = 0xEc5bEe2dbB67dA8757091Ad3D9526Ba3ed2E2137;
+    address public ezoTokenAddress = 0xef55BfAc4228981E850936AAf042951F7b146e41;
+    address public currencyPricesContract = 0x5E72914535f202659083Db3a02C984188Fa26e9f;
+    address public secureETHContractAddress = 0x8c1eD7e19abAa9f23c476dA86Dc1577F1Ef401f5;
     
     mapping (address => mapping (address => Order)) orderAll;
+    mapping (address => uint256) public tokenBalancesForEZO;
     
     event orderAdded(uint256,uint256,address,address,address);
     event orderCompleted(uint256,address,address);
@@ -171,8 +175,19 @@ contract SmartSwap is SafeMath,Haltable {
         currencyPricesContract = _currencyPricesContract;
     }
     
+    //Owner can Set secureETH contract address
+    //@ param _secureETHContractAddress Address of secureETH contract.
+    function setSecureETHContractAddress(address _secureETHContractAddress) public onlyOwner {
+        require(_secureETHContractAddress != address(0));
+        secureETHContractAddress = _secureETHContractAddress;
+    }
+    
     function getPendingOrders(address currencySent,address currencyWant,uint256 index) public view returns(address,uint256,uint256,address,address,bool){
         return (orderAll[currencySent][currencyWant].orderDetails[index].sender,orderAll[currencySent][currencyWant].orderDetails[index].amountSent,orderAll[currencySent][currencyWant].orderDetails[index].remainingAmount,orderAll[currencySent][currencyWant].orderDetails[index].currencySent,orderAll[currencySent][currencyWant].orderDetails[index].currencyWant,orderAll[currencySent][currencyWant].orderDetails[index].status);    
+    }
+    
+    function getPendingOrdersTest(address currencySent,address currencyWant,uint256 index) public view returns(uint256,address,address,bool){
+        return (orderAll[currencySent][currencyWant].orderDetails[index].remainingAmount,orderAll[currencySent][currencyWant].orderDetails[index].currencySent,orderAll[currencySent][currencyWant].orderDetails[index].currencyWant,orderAll[currencySent][currencyWant].orderDetails[index].status);    
     }
     
     function sendEther(address _currencyWant) payable external {
@@ -201,6 +216,7 @@ contract SmartSwap is SafeMath,Haltable {
     function addOrder(uint256 _sentAmount, address payable _sender, address _currencySent,address _currencyWant) internal {
         if(_currencyWant == ezoTokenAddress){
             orderAll[_currencySent][_currencyWant].orderDetails.push(PurchaseRecord(_sender,_sentAmount,0,_currencySent,_currencyWant,true));
+            tokenBalancesForEZO[_currencySent] = safeAdd(tokenBalancesForEZO[_currencySent],_sentAmount);
             generalFundAssign(ezoTokenAddress,_sender,safeDiv(safeMul(safeDiv(safeMul(_sentAmount,10**CurrencyPrices(currencyPricesContract).currencyDecimal(ezoTokenAddress)), 10**CurrencyPrices(currencyPricesContract).currencyDecimal(_currencySent)),CurrencyPrices(currencyPricesContract).currencyPrices(_currencySent)),CurrencyPrices(currencyPricesContract).currencyPrices(ezoTokenAddress)));
         } else if(_currencySent == ezoTokenAddress){
             if(generalFundAssignEZO(_currencyWant,_sender,safeDiv(safeMul(safeDiv(safeMul(_sentAmount,10**CurrencyPrices(currencyPricesContract).currencyDecimal(_currencyWant)), 10**CurrencyPrices(currencyPricesContract).currencyDecimal(ezoTokenAddress)),CurrencyPrices(currencyPricesContract).currencyPrices(ezoTokenAddress)),CurrencyPrices(currencyPricesContract).currencyPrices(_currencyWant)))){
@@ -224,7 +240,7 @@ contract SmartSwap is SafeMath,Haltable {
             
             if(_indexNew < orderAll[currencySentNewOrder][currencyWantNewOrder].orderDetails.length && _indexOld < orderAll[currencyWantNewOrder][currencySentNewOrder].orderDetails.length){
                 uint256 remainingAmountPendingOrder = orderAll[_currencyWantNewOrder][_currencySentNewOrder].orderDetails[_indexOld].remainingAmount;
-                uint256 returnCurrencyAmount = getReturnAmount(remainingAmountPendingOrder, _currencySentNewOrder, _currencyWantNewOrder, _indexNew, _indexOld);
+                uint256 returnCurrencyAmount = getReturnAmount(remainingAmountPendingOrder, _currencySentNewOrder, _currencyWantNewOrder, _indexOld);
                 
                 if(!orderAll[_currencyWantNewOrder][_currencySentNewOrder].orderDetails[_indexOld].status && !orderAll[_currencySentNewOrder][_currencyWantNewOrder].orderDetails[_indexNew].status){
                     if(returnCurrencyAmount < remainingAmountNewOrder){
@@ -256,7 +272,7 @@ contract SmartSwap is SafeMath,Haltable {
             }
     }
     
-    function getReturnAmount(uint256 _remainingAmountPendingOrder, address _currencySentNewOrder,address _currencyWantNewOrder,uint256 _indexNew,uint256 _indexOld) internal view returns(uint256){
+    function getReturnAmount(uint256 _remainingAmountPendingOrder, address _currencySentNewOrder,address _currencyWantNewOrder,uint256 _indexOld) internal view returns(uint256){
         return safeDiv(safeMul(safeDiv(safeMul(_remainingAmountPendingOrder, 10**CurrencyPrices(currencyPricesContract).currencyDecimal(orderAll[_currencyWantNewOrder][_currencySentNewOrder].orderDetails[_indexOld].currencyWant)), 10**CurrencyPrices(currencyPricesContract).currencyDecimal(orderAll[_currencyWantNewOrder][_currencySentNewOrder].orderDetails[_indexOld].currencySent)), CurrencyPrices(currencyPricesContract).currencyPrices(orderAll[_currencyWantNewOrder][_currencySentNewOrder].orderDetails[_indexOld].currencySent)), CurrencyPrices(currencyPricesContract).currencyPrices(orderAll[_currencyWantNewOrder][_currencySentNewOrder].orderDetails[_indexOld].currencyWant));
     }
     
@@ -280,8 +296,10 @@ contract SmartSwap is SafeMath,Haltable {
     }
     
     function generalFundAssignEZO(address _currencyWantNewOrder,address payable _recipient, uint256 _amount) internal returns (bool) {
+        require(tokenBalancesForEZO[_currencyWantNewOrder] >= _amount);
         if(_currencyWantNewOrder == address(0)) {
             if(address(this).balance >= _amount){
+                tokenBalancesForEZO[_currencyWantNewOrder] = safeSub(tokenBalancesForEZO[_currencyWantNewOrder],_amount);
                 assignEther(_recipient,_amount);
                 emit orderCompleted(_amount,_recipient,address(0));   
                 return true;
@@ -290,50 +308,13 @@ contract SmartSwap is SafeMath,Haltable {
             }
         } else {
             if(Token(_currencyWantNewOrder).balanceOf(address(this)) >= _amount){
+                tokenBalancesForEZO[_currencyWantNewOrder] = safeSub(tokenBalancesForEZO[_currencyWantNewOrder],_amount);
                 systemAssignToken(_currencyWantNewOrder,_recipient,_amount);   
                 emit orderCompleted(_amount,_recipient,_currencyWantNewOrder);   
                 return true;
             } else {
                 return false;
             }
-        }
-    }
-    
-    function checkStabilityView(address _currencySentNewOrder,address _currencyWantNewOrder,uint256 _indexNew,uint256 _indexOld) public view returns(bool){
-        require(CurrencyPrices(currencyPricesContract).currencyPrices(_currencySentNewOrder) > 0 && CurrencyPrices(currencyPricesContract).currencyPrices(_currencyWantNewOrder) > 0);
-        address currencySentNewOrder = orderAll[_currencySentNewOrder][_currencyWantNewOrder].orderDetails[_indexNew].currencySent;            
-        address currencyWantNewOrder = orderAll[_currencySentNewOrder][_currencyWantNewOrder].orderDetails[_indexNew].currencyWant;        
-        uint256 remainingAmountNewOrder = orderAll[_currencySentNewOrder][_currencyWantNewOrder].orderDetails[_indexNew].remainingAmount;
-        if(_indexNew < orderAll[currencySentNewOrder][currencyWantNewOrder].orderDetails.length && _indexOld < orderAll[currencyWantNewOrder][currencySentNewOrder].orderDetails.length){
-            uint256 remainingAmountPendingOrder = orderAll[_currencyWantNewOrder][_currencySentNewOrder].orderDetails[_indexOld].remainingAmount;
-            uint256 returnCurrencyAmount = getReturnAmount(remainingAmountPendingOrder, _currencySentNewOrder, _currencyWantNewOrder, _indexNew, _indexOld);
-            if(!orderAll[_currencyWantNewOrder][_currencySentNewOrder].orderDetails[_indexOld].status && !orderAll[_currencySentNewOrder][_currencyWantNewOrder].orderDetails[_indexNew].status){
-                if(returnCurrencyAmount < remainingAmountNewOrder){
-                    require(generalFundAssignView(currencyWantNewOrder,remainingAmountPendingOrder));
-                    require(generalFundAssignView(orderAll[_currencyWantNewOrder][_currencySentNewOrder].orderDetails[_indexOld].currencyWant,remainingAmountNewOrder - (remainingAmountNewOrder-returnCurrencyAmount)));
-                    return true;
-                } else if(returnCurrencyAmount > remainingAmountNewOrder){
-                    require(generalFundAssignView(currencyWantNewOrder,remainingAmountPendingOrder - (getCalValue(returnCurrencyAmount,remainingAmountNewOrder,_currencySentNewOrder,_currencyWantNewOrder))));
-                    require(generalFundAssignView(orderAll[_currencyWantNewOrder][_currencySentNewOrder].orderDetails[_indexOld].currencyWant,remainingAmountNewOrder));
-                    return true;
-                }
-            } else {
-                return false;
-            }
-        } else {
-            return false;
-        }
-    }
-    
-    function generalFundAssignView(address _currencyWantNewOrder, uint256 _amount) public view returns(bool){
-        if(_currencyWantNewOrder == ezoTokenAddress) {
-            return true;   
-        } else if(_currencyWantNewOrder == address(0)) {
-            require(address(this).balance >= _amount);
-            return true;   
-        } else {
-            require(Token(_currencyWantNewOrder).balanceOf(address(this)) >= _amount);
-            return true;   
         }
     }
     
@@ -345,16 +326,41 @@ contract SmartSwap is SafeMath,Haltable {
         Token(token).transfer(_to,_amount);
     }
     
-    function getEtherBalance() public view returns (uint256) {
-        return address(this).balance;
-    }
-    
-    function checkTokenBalance(address _tokenAddress) public view returns (uint256) {
-        return Token(_tokenAddress).balanceOf(address(this));
-    }
-    
     function getCurrencyPrice(address _currencyId) view public returns (uint256) {
         return CurrencyPrices(currencyPricesContract).currencyPrices(_currencyId);
+    }
+    
+    //@notice function to withdraw ether equivalent of the tokens msg.sender has
+
+    function _sendEther() payable public {
+        require(msg.value > 0);
+        // emit EtherSent(msg.sender,msg.value);
+        //get the price of ether from currencyPrices contract
+        //calculate tokensToBeTransfered (it assumes that the deployed ERC20 contract has decimals = 18)
+        tokenBalancesForEZO[address(0)] = safeAdd(tokenBalancesForEZO[address(0)],msg.value);
+        Token(secureETHContractAddress).mint(msg.sender , safeMul(CurrencyPrices(currencyPricesContract).currencyPrices(address(0)),msg.value));
+    }
+    
+    function _withdrawEther() public{
+        uint256 tokensToWithdraw = Token(secureETHContractAddress).balanceOf(msg.sender);
+        //@dev burn tokens equivalent to amount
+        Token(secureETHContractAddress).burn(msg.sender,tokensToWithdraw);
+        if(tokenBalancesForEZO[address(0)] >= safeDiv(tokensToWithdraw,CurrencyPrices(currencyPricesContract).currencyPrices(address(0)))){
+            tokenBalancesForEZO[address(0)] = safeSub(tokenBalancesForEZO[address(0)],safeDiv(tokensToWithdraw,CurrencyPrices(currencyPricesContract).currencyPrices(address(0))));
+            assignEther(msg.sender,safeDiv(tokensToWithdraw,CurrencyPrices(currencyPricesContract).currencyPrices(address(0))));   
+        }
+        //emit EtherWithdrawed(msg.sender,etherToBetransfered);
+    }
+
+    function withdraw(uint256 amount) public onlyOwner returns(bool) {
+        assignEther(msg.sender,amount);
+       // emit EtherWithdrawed(msg.sender,amount);
+        return true;
+    }
+    
+    //@notice fallaback function to allow owner to send ether to the contract (e.g.- in case of price drop)
+    function () external payable onlyOwner{
+         //emit EtherSent(msg.sender,msg.value);
     }
     
 }
