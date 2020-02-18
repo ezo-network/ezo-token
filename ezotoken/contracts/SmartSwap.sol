@@ -182,8 +182,8 @@ contract SmartSwap is SafeMath,Haltable {
         secureETHContractAddress = _secureETHContractAddress;
     }
     
-    function getPendingOrdersTest(address currencySent,address currencyWant,uint256 index) public view returns(uint256,address,address,bool){
-        return (orderAll[currencySent][currencyWant].orderDetails[index].remainingAmount,orderAll[currencySent][currencyWant].orderDetails[index].currencySent,orderAll[currencySent][currencyWant].orderDetails[index].currencyWant,orderAll[currencySent][currencyWant].orderDetails[index].status);    
+    function getPendingOrders(address currencySent,address currencyWant,uint256 index) public view returns(address,uint256,uint256,address,address,bool){
+        return (orderAll[currencySent][currencyWant].orderDetails[index].sender,orderAll[currencySent][currencyWant].orderDetails[index].amountSent,orderAll[currencySent][currencyWant].orderDetails[index].remainingAmount,orderAll[currencySent][currencyWant].orderDetails[index].currencySent,orderAll[currencySent][currencyWant].orderDetails[index].currencyWant,orderAll[currencySent][currencyWant].orderDetails[index].status);    
     }
     
     function sendEther(address _currencyWant) payable external {
