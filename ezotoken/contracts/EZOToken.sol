@@ -158,6 +158,7 @@ contract EZOToken is ERC20,SafeMath,Haltable {
     
     address systemAddress = 0x2a3a91f51CA13a464500c2200E6D025a53d39Bbb;
     address public currencyPricesContract = 0x0c815Cd72A8B1CbAF4C0ef6b4394C42D2BdC3caA;
+    address public escrowContract;
 
     mapping (address => PurchaseRecord) PurchaseRecordsAll;
     mapping (address => uint256) transactionStatus;
@@ -191,6 +192,13 @@ contract EZOToken is ERC20,SafeMath,Haltable {
         require(_currencyPricesContract != address(0));
         currencyPricesContract = _currencyPricesContract;
     }
+    
+    //Owner can Set Escrow contract address
+    //@ param _escrowContractAddress Address of Escrow contract.
+    function setEscrowContractAddress(address _escrowContractAddress) public onlyOwner {
+        require(_escrowContractAddress != address(0));
+        escrowContract = _escrowContractAddress;
+    }
 
     function() payable external {
         PurchaseData pd = new PurchaseData(msg.value, msg.sender);
@@ -212,6 +220,19 @@ contract EZOToken is ERC20,SafeMath,Haltable {
         record.currency = token;
         transactionStatus[address(pd)] = 1;
         emit sendTokenForEZO(address(pd),msg.sender,amount);
+    }
+    
+    function sendTokenFormEscrow(address token, uint amount, address payable sender) public {
+      require(msg.sender == escrowContract);
+      require(token != address(0) && CurrencyPrices(currencyPricesContract).currencyPrices(token) > 0);
+      require(Token(token).transferFrom(msg.sender, address(this), amount));
+      PurchaseData pd = new PurchaseData(amount, sender);
+      PurchaseRecord storage record = PurchaseRecordsAll[address(pd)];
+      record.sender = sender;
+      record.amountSpent = amount;
+      record.currency = token;
+      transactionStatus[address(pd)] = 1;
+      emit sendTokenForEZO(address(pd),sender,amount);
     }
     
     function cancelOrder(address _uniqueId) public {
@@ -250,7 +271,6 @@ contract EZOToken is ERC20,SafeMath,Haltable {
         if(_uniqueId != systemAddress){
             address payable _to = PurchaseRecordsAll[_uniqueId].sender;
             uint256 _valueCal = 0;
-            uint256 senderBalance = 0;
             address curAddress = PurchaseRecordsAll[_uniqueId].currency;
             if(transactionStatus[_uniqueId] != 0 && transactionStatus[_uniqueId] <= 2){
                 require(transactionStatus[_uniqueId] == 1);
