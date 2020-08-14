@@ -117,6 +117,7 @@ contract Token {
     function transfer(address _to, uint _value) public returns (bool ok) {}
     function transferFrom(address _from, address _to, uint256 _value) public returns (bool success) {}
     function balanceOf(address _who) public view returns (uint);
+    function approve(address _spender, uint256 _value) public returns (bool success);
 }
 
 contract CurrencyPrices {
@@ -133,6 +134,10 @@ contract PurchaseData is SafeMath{
         value = _value;
         sender = _sender;
     }
+}
+
+interface IEscrow {
+ function canceledP2P(address user, uint256 value) external returns(bool);
 }
 
 contract EZOToken is ERC20,SafeMath,Haltable {
@@ -152,13 +157,13 @@ contract EZOToken is ERC20,SafeMath,Haltable {
 
     struct PurchaseRecord {
         address payable sender;
+        address beneficiary;
         uint256 amountSpent;
         address currency;
     }
     
     address systemAddress = 0x2a3a91f51CA13a464500c2200E6D025a53d39Bbb;
     address public currencyPricesContract = 0x0c815Cd72A8B1CbAF4C0ef6b4394C42D2BdC3caA;
-    address public escrowContract;
 
     mapping (address => PurchaseRecord) PurchaseRecordsAll;
     mapping (address => uint256) transactionStatus;
@@ -192,17 +197,11 @@ contract EZOToken is ERC20,SafeMath,Haltable {
         require(_currencyPricesContract != address(0));
         currencyPricesContract = _currencyPricesContract;
     }
-    
-    //Owner can Set Escrow contract address
-    //@ param _escrowContractAddress Address of Escrow contract.
-    function setEscrowContractAddress(address _escrowContractAddress) public onlyOwner {
-        require(_escrowContractAddress != address(0));
-        escrowContract = _escrowContractAddress;
-    }
 
     function() payable external {
         PurchaseData pd = new PurchaseData(msg.value, msg.sender);
         PurchaseRecord storage record = PurchaseRecordsAll[address(pd)];
+        record.beneficiary = msg.sender;
         record.sender = msg.sender;
         record.amountSpent = msg.value;
         record.currency = address(0);
@@ -215,6 +214,7 @@ contract EZOToken is ERC20,SafeMath,Haltable {
         require(Token(token).transferFrom(msg.sender, address(this), amount));
         PurchaseData pd = new PurchaseData(amount, msg.sender);
         PurchaseRecord storage record = PurchaseRecordsAll[address(pd)];
+        record.beneficiary = msg.sender;
         record.sender = msg.sender;
         record.amountSpent = amount;
         record.currency = token;
@@ -223,11 +223,11 @@ contract EZOToken is ERC20,SafeMath,Haltable {
     }
     
     function sendTokenFormEscrow(address token, uint amount, address payable sender) public {
-      require(msg.sender == escrowContract);
       require(token != address(0) && CurrencyPrices(currencyPricesContract).currencyPrices(token) > 0);
       require(Token(token).transferFrom(msg.sender, address(this), amount));
       PurchaseData pd = new PurchaseData(amount, sender);
       PurchaseRecord storage record = PurchaseRecordsAll[address(pd)];
+      record.beneficiary = msg.sender;
       record.sender = sender;
       record.amountSpent = amount;
       record.currency = token;
@@ -235,11 +235,22 @@ contract EZOToken is ERC20,SafeMath,Haltable {
       emit sendTokenForEZO(address(pd),sender,amount);
     }
     
+    function escrowTransfer (address _uniqueId, uint returnAmount) internal {
+        PurchaseRecord storage pr = PurchaseRecordsAll[_uniqueId];
+        Token(pr.currency).approve(pr.beneficiary, returnAmount);
+        IEscrow(pr.beneficiary).canceledP2P(pr.sender, returnAmount);
+    }
+    
     function cancelOrder(address _uniqueId) public {
         require(msg.sender == PurchaseRecordsAll[_uniqueId].sender);
         require(transactionStatus[_uniqueId] == 1);
         transactionStatus[_uniqueId] = 2;
-        generalFundAssign(PurchaseRecordsAll[_uniqueId].currency,PurchaseRecordsAll[_uniqueId].sender,PurchaseRecordsAll[_uniqueId].amountSpent);
+        if (msg.sender == PurchaseRecordsAll[_uniqueId].beneficiary) {
+            generalFundAssign(PurchaseRecordsAll[_uniqueId].currency,PurchaseRecordsAll[_uniqueId].sender,PurchaseRecordsAll[_uniqueId].amountSpent);
+        }
+        else {
+            escrowTransfer(_uniqueId, PurchaseRecordsAll[_uniqueId].amountSpent);
+        }
     }
     
     function generalFundAssign(address _currencySent,address payable _recipient, uint256 _amount) internal {
@@ -293,7 +304,11 @@ contract EZOToken is ERC20,SafeMath,Haltable {
                 } else {
                     Token(curAddress).transfer(msg.sender,sentAmount);
                     if(returnAmount != 0){
-                        Token(curAddress).transfer(_to,returnAmount);
+                        if (_to == PurchaseRecordsAll[_uniqueId].beneficiary) {
+                            Token(curAddress).transfer(_to,returnAmount);
+                        } else {
+                            escrowTransfer(_uniqueId, returnAmount);
+                        }
                     }
                 }
                 if(_valueCal < _value){
